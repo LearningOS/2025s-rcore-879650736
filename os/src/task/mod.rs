@@ -146,7 +146,7 @@ impl TaskManager {
     pub fn get(&self, syscall_id: usize) -> usize {
         let inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        inner.tasks[current].syscall_counts[syscall_id]
+        inner.tasks[current].syscall_counts[syscall_id].into()
     }
 }
 
