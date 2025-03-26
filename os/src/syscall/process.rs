@@ -3,7 +3,7 @@ use alloc::sync::Arc;
 
 use crate::{
     loader::get_app_data_by_name,
-    mm::{translated_refmut, translated_str, VirtAddr, MapPermission},
+    mm::{translated_refmut, translated_str, VirtAddr},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
         suspend_current_and_run_next,sysc_mmap,sysc_unmap
@@ -142,33 +142,18 @@ pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
         "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    // 检查参数合法性
+    // 检查 prot 是否只有前三位有效
+    if port & !0b111 != 0 {
+        return -1; // prot 包含无效位，其他位必须为 0
+    }
+    if port & 0b111 == 0{
+        return -1;
+    }
     if len == 0 || start % PAGE_SIZE != 0 {
         return -1; // 非法的 `len` 或 `start` 地址不对齐
     }
-
-    // 将 `prot` 参数转换为 `SysMmapPermission` 标志
-    let permissions = SysMmapPermission::from_bits(port as u8).unwrap();
-    // 转换为 `MapPermission`
-    let map_permissions = convert_sysmmap_to_map_permission(permissions);
-
-    sysc_mmap(start,len,map_permissions)
+    sysc_mmap(start, len, port)
     
-}
-/// 将 `SysMmapPermission` 转换为 `MapPermission`
-#[allow(unused)]
-fn convert_sysmmap_to_map_permission(permissions: SysMmapPermission) -> MapPermission {
-    let mut map_perm = MapPermission::empty();
-    if permissions.contains(SysMmapPermission::R) {
-        map_perm |= MapPermission::R;
-    }
-    if permissions.contains(SysMmapPermission::W) {
-        map_perm |= MapPermission::W;
-    }
-    if permissions.contains(SysMmapPermission::X) {
-        map_perm |= MapPermission::X;
-    }
-    map_perm | MapPermission::U // 用户权限标志
 }
 /// YOUR JOB: Implement munmap.
 pub fn sys_munmap(start: usize, len: usize) -> isize {

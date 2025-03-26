@@ -103,10 +103,11 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 }
 
 ///
-pub fn sysc_mmap(start:usize,len:usize,permission:MapPermission) -> isize {
+pub fn sysc_mmap(start:usize,len:usize, port: usize) -> isize {
     let current_task_control_block = current_task().unwrap();
     let mut current_task = current_task_control_block.inner_exclusive_access();
     let end = start + len;
+    let permission=MapPermission::from_bits_truncate((port << 1) as u8) | MapPermission::U;
     if current_task.memory_set.is_overlap_with(start.into(), end.into()){
         return -1;
     }
