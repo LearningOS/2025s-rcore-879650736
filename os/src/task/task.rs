@@ -5,6 +5,7 @@ use crate::config::{TRAP_CONTEXT_BASE,BIG_STRIDE};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
+use crate::task::add_task;
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 use core::cell::RefMut;
@@ -274,9 +275,9 @@ impl TaskControlBlock {
             kernel_stack_top,
             trap_handler as usize,
         );
+        trap_cx.x[10] = 0;
+        add_task(task_control_block);
         pid
-        // **** release child PCB
-        // ---- release parent PCB
     }
 
     /// get pid of process

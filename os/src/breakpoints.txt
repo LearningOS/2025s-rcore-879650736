@@ -1,0 +1,11 @@
+break run_tasks
+break src/task/processor.rs:62
+break trap_handler
+break __switch
+break syscall::syscall
+break __restore
+break __switch
+break trap_return
+break src/task/processor.rs:99
+break exit_current_and_run_next
+break suspend_current_and_run_next
