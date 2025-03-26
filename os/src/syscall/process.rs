@@ -3,13 +3,13 @@ use alloc::sync::Arc;
 
 use crate::{
     loader::get_app_data_by_name,
-    mm::{translated_refmut, translated_str, VirtAddr},
+    mm::{translated_refmut, translated_str, VirtAddr, MapPermission},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
         suspend_current_and_run_next,sysc_mmap,sysc_unmap
     },
     timer::get_time_us,
-    config::PAGE_SIZE,
+    config::{PAGE_SIZE, BIG_STRIDE},
 };
 
 #[repr(C)]
@@ -127,6 +127,15 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     0
 }
 
+bitflags! {
+    /// map permission corresponding to that in pte: `R W X U`
+    pub struct SysMmapPermission: u8 {
+        const R = 1;
+        const W = 1 << 1;
+        const X = 1 << 2;
+    }
+}
+
 /// YOUR JOB: Implement mmap.
 pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
     trace!(
@@ -138,17 +147,29 @@ pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
         return -1; // 非法的 `len` 或 `start` 地址不对齐
     }
 
-    // 检查 prot 是否只有前三位有效
-    if port & !0b111 != 0 {
-        return -1; // prot 包含无效位，其他位必须为 0
-    }
-    if port & 0b111 == 0{
-        return -1;
-    }
-    sysc_mmap(start, len, port)
+    // 将 `prot` 参数转换为 `SysMmapPermission` 标志
+    let permissions = SysMmapPermission::from_bits(port as u8).unwrap();
+    // 转换为 `MapPermission`
+    let map_permissions = convert_sysmmap_to_map_permission(permissions);
+
+    sysc_mmap(start,len,map_permissions)
     
 }
-
+/// 将 `SysMmapPermission` 转换为 `MapPermission`
+#[allow(unused)]
+fn convert_sysmmap_to_map_permission(permissions: SysMmapPermission) -> MapPermission {
+    let mut map_perm = MapPermission::empty();
+    if permissions.contains(SysMmapPermission::R) {
+        map_perm |= MapPermission::R;
+    }
+    if permissions.contains(SysMmapPermission::W) {
+        map_perm |= MapPermission::W;
+    }
+    if permissions.contains(SysMmapPermission::X) {
+        map_perm |= MapPermission::X;
+    }
+    map_perm | MapPermission::U // 用户权限标志
+}
 /// YOUR JOB: Implement munmap.
 pub fn sys_munmap(start: usize, len: usize) -> isize {
     trace!(
@@ -182,27 +203,44 @@ pub fn sys_sbrk(size: i32) -> isize {
 
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
-pub fn sys_spawn(path: *const u8) -> isize {
+pub fn sys_spawn(_path: *const u8) -> isize {
     trace!(
         "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    let token = current_user_token();
-    let path = translated_str(token, path);
+    let current_task = current_task().unwrap();
+    let new_task = current_task.fork();
+    let new_pid = new_task.pid.0;
+    // modify trap context of new_task, because it returns immediately after switching
+    let trap_cx = new_task.inner_exclusive_access().get_trap_cx();
+    // we do not have to move to next instruction since we have done it before
+    // for child process, fork returns 0
+    trap_cx.x[10] = 0;
+    let new_token = new_task.get_user_token();
+    let path = translated_str(new_token, _path);
     if let Some(data) = get_app_data_by_name(path.as_str()) {
-        let task = current_task().unwrap();
-        task.spawn(data);
-        0
+        new_task.exec(data);
+        // add new task to scheduler
+        add_task(new_task);
+        new_pid as isize
     } else {
         -1
     }
 }
 
 // YOUR JOB: Set task priority.
-pub fn sys_set_priority(_prio: isize) -> isize {
+pub fn sys_set_priority(prio: isize) -> isize {
     trace!(
         "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    if prio <  2
+    {
+        return -1;
+    }
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.prio = prio;
+    inner.pass = BIG_STRIDE/prio;
+    prio
 }

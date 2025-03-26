@@ -60,6 +60,7 @@ pub fn run_tasks() {
             let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
             // access coming task TCB exclusively
             let mut task_inner = task.inner_exclusive_access();
+            task_inner.stride += task_inner.pass;
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
             // release coming task_inner manually
@@ -101,22 +102,11 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
         .get_trap_cx()
 }
 
-///Return to idle control flow for new scheduling
-pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
-    let mut processor = PROCESSOR.exclusive_access();
-    let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
-    drop(processor);
-    unsafe {
-        __switch(switched_task_cx_ptr, idle_task_cx_ptr);
-    }
-}
-
 ///
-pub fn sysc_mmap(start:usize,len:usize, port: usize) -> isize {
+pub fn sysc_mmap(start:usize,len:usize,permission:MapPermission) -> isize {
     let current_task_control_block = current_task().unwrap();
     let mut current_task = current_task_control_block.inner_exclusive_access();
     let end = start + len;
-    let permission=MapPermission::from_bits_truncate((port << 1) as u8) | MapPermission::U;
     if current_task.memory_set.is_overlap_with(start.into(), end.into()){
         return -1;
     }
@@ -132,4 +122,14 @@ pub fn sysc_unmap(start:usize,len:usize)  -> isize{
     let end_va = (start+len).into();
     current_task.memory_set.delete_framed_area(start_va, end_va);
     0
+}
+
+///Return to idle control flow for new scheduling
+pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
+    let mut processor = PROCESSOR.exclusive_access();
+    let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
+    drop(processor);
+    unsafe {
+        __switch(switched_task_cx_ptr, idle_task_cx_ptr);
+    }
 }
