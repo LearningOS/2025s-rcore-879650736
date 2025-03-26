@@ -15,7 +15,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
-use crate::mm::MapPermission;
+use crate::mm::{MapPermission, VirtAddr};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -172,9 +172,9 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
         let tasks = &mut inner.tasks[current];
-        let start_va = start.into();
-        let end_va = (start+len).into();
-        let permission = port.into();
+        let start_va = VirtAddr::from(start);
+        let end_va = VirtAddr::from(start+len);
+        let permission=MapPermission::from_bits_truncate((port << 1) as u8) | MapPermission::U;
         if tasks.memory_set.is_overlap_with(start_va, end_va){
             return -1;
         }

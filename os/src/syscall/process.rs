@@ -48,9 +48,6 @@ pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
     trace!("kernel: sys_trace");
     let token = current_user_token();
     let phys_addr:usize = translate_to_phys_addr(token, id);
-    if phys_addr == 0 {
-        return -1;
-    }
     if (trace_request == 1 || trace_request == 0) && check_contains_addr(id) == false {
         return -1;
     }

@@ -442,17 +442,6 @@ bitflags! {
     }
 }
 
-impl From<usize> for MapPermission {
-    fn from(prot: usize) -> Self {
-        // 直接取低3位，其他位被忽略
-        let bits = ((prot & 0b001) << 1)  // R: prot.0 -> bit1
-                | ((prot & 0b010) << 1)  // W: prot.1 -> bit2
-                | ((prot & 0b100) << 1); // X: prot.2 -> bit3
-        
-        // 使用 from_bits_truncate 忽略无效位
-        MapPermission::from_bits_truncate(bits as u8)
-    }
-}
 
 /// Return (bottom, top) of a kernel stack in kernel space.
 pub fn kernel_stack_position(app_id: usize) -> (usize, usize) {
