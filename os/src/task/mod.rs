@@ -15,6 +15,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::MapPermission;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -180,6 +181,22 @@ impl TaskManager {
         tasks.memory_set.insert_framed_area(start_va, end_va, permission);
         0
     }
+    ///
+    pub fn check_contains_addr(&self, addr: usize) -> bool {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let tasks = &inner.tasks[current];
+        let addr_va = addr.into();
+        tasks.memory_set.contains_addr(addr_va)
+    }
+    ///
+    pub fn get_map_permission(&self, addr: usize) -> Option<MapPermission> {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let tasks = &inner.tasks[current];
+        let addr_va = addr.into();
+        tasks.memory_set.get_map_permission(addr_va)
+    }
     /// 
     pub fn unmap(&self, start: usize, len: usize) -> isize {
         let mut inner = self.inner.exclusive_access();
@@ -191,7 +208,14 @@ impl TaskManager {
         0
     }
 }
-
+///
+pub fn check_contains_addr(addr: usize) -> bool {
+    TASK_MANAGER.check_contains_addr(addr)
+}
+///
+pub fn get_map_permission(addr: usize) -> Option<MapPermission> {
+    TASK_MANAGER.get_map_permission(addr)
+}
 ///
 pub fn syscall_mmap(start: usize, len: usize, port: usize) -> isize {
     TASK_MANAGER.mmap(start, len, port)

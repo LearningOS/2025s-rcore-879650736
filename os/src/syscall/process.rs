@@ -1,8 +1,8 @@
 //! Process management syscalls
-use crate::task::{change_program_brk, current_user_token, exit_current_and_run_next, suspend_current_and_run_next};
-use crate::mm::{translate_to_phys_addr, VirtAddr};
+use crate::task::{change_program_brk, check_contains_addr, current_user_token, exit_current_and_run_next, get_map_permission, suspend_current_and_run_next};
+use crate::mm::{translate_to_phys_addr, VirtAddr, MapPermission};
 use crate::timer::get_time_us;
-use crate::task :: {syscall_get,syscall_mmap,syscall_unmap};
+use crate::task :: {syscall_mmap,syscall_unmap, syscall_get};
 use crate::config::PAGE_SIZE;
 #[repr(C)]
 #[derive(Debug)]
@@ -51,6 +51,18 @@ pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
     if phys_addr == 0 {
         return -1;
     }
+    if (trace_request == 1 || trace_request == 0) && check_contains_addr(id) == false {
+        return -1;
+    }
+    if trace_request == 1 {
+        // 获取地址的权限
+        let perm = get_map_permission(id);
+        // 若地址未映射 或 不可写 → 返回 -1
+        if perm.map_or(true, |p| !p.contains(MapPermission::W)) {
+            return -1;
+        }
+    }
+    
     let phys_ptr = phys_addr as *mut u8;
     match trace_request {
         0 => {
