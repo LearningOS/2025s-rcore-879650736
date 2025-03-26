@@ -37,6 +37,27 @@ pub struct MemorySet {
 }
 
 impl MemorySet {
+     /// 检查给定的虚拟地址是否存在于任意一个内存映射区域中
+     pub fn contains_addr(&self, addr: VirtAddr) -> bool {
+        let target_vpn = addr.floor(); // 获取地址所在的虚拟页号
+        self.areas.iter().any(|area| {
+            let area_start = area.vpn_range.get_start();
+            let area_end = area.vpn_range.get_end();
+            // 判断地址的页号是否在区域的页号范围内 [start, end)
+            target_vpn >= area_start && target_vpn < area_end
+        })
+    }
+    ///
+    pub fn get_map_permission(&self, addr: VirtAddr) -> Option<MapPermission> {
+        let target_vpn = addr.floor(); // 转换为虚拟页号
+        self.areas.iter()
+            .find(|area| {
+                let start = area.vpn_range.get_start();
+                let end = area.vpn_range.get_end();
+                target_vpn >= start && target_vpn < end // 检查页号是否在区域内
+            })
+            .map(|area| area.map_perm) // 提取权限
+    }
     /// Create a new empty `MemorySet`.
     pub fn new_bare() -> Self {
         Self {
@@ -47,6 +68,23 @@ impl MemorySet {
     /// Get the page table token
     pub fn token(&self) -> usize {
         self.page_table.token()
+    }
+    ///
+    pub fn is_overlap_with(&self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+        let start_va = start_va.floor();
+        let end_va = end_va.ceil();
+        self.areas.iter().any(|map_area| {
+            let map_start_va = map_area.vpn_range.get_start();
+            let map_end_va = map_area.vpn_range.get_end();
+            // println!("map_start_va:{:?},map_end_va:{:?}",map_start_va,map_end_va);
+            // println!("start_va:{:?},end_va:{:?}",start_va,end_va);
+            if (start_va < map_end_va)
+                && (end_va > map_start_va)
+            {
+                return true;
+            } 
+            false
+        })
     }
     /// Assume that no conflicts.
     pub fn insert_framed_area(
@@ -59,6 +97,18 @@ impl MemorySet {
             MapArea::new(start_va, end_va, MapType::Framed, permission),
             None,
         );
+    }
+    ///
+    pub fn delete_framed_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) {
+        let start_va = start_va.floor();
+        let end_va = end_va.ceil();
+        let index = self.areas.iter_mut().position(|map_area|
+            {start_va == map_area.vpn_range.get_start()
+            && end_va == map_area.vpn_range.get_end()});
+        if let Some(index) = index {
+            self.areas[index].unmap(&mut self.page_table);
+            self.areas.remove(index);
+        }
     }
     /// remove a area
     pub fn remove_area_with_start_vpn(&mut self, start_vpn: VirtPageNum) {
