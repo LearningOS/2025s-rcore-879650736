@@ -1,6 +1,9 @@
 //! Process management syscalls
-use crate::task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next};
-
+use crate::task::{change_program_brk, current_user_token, exit_current_and_run_next, suspend_current_and_run_next};
+use crate::mm::{translate_to_phys_addr, VirtAddr};
+use crate::timer::get_time_us;
+use crate::task :: {syscall_get,syscall_mmap,syscall_unmap};
+use crate::config::PAGE_SIZE;
 #[repr(C)]
 #[derive(Debug)]
 pub struct TimeVal {
@@ -25,28 +28,85 @@ pub fn sys_yield() -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-    -1
+    let token = current_user_token();
+    let phys_addr:usize = translate_to_phys_addr(token, ts as usize);
+    let us = get_time_us();
+    unsafe {
+        *(phys_addr as *mut TimeVal) = TimeVal {
+            sec: us / 1_000_000,
+            usec: us % 1_000_000,
+        };
+    }
+    0
 }
 
 /// TODO: Finish sys_trace to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
-pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
+pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
     trace!("kernel: sys_trace");
-    -1
+    let token = current_user_token();
+    let phys_addr:usize = translate_to_phys_addr(token, id);
+    if phys_addr == 0 {
+        return -1;
+    }
+    let phys_ptr = phys_addr as *mut u8;
+    match trace_request {
+        0 => {
+            let value = unsafe {
+                *phys_ptr as isize 
+            };
+            value
+        },
+        1 => {
+            
+            unsafe {
+                *phys_ptr = data as u8;
+            };
+            0
+        },
+        2 => {
+            syscall_get(id) as isize
+        },
+        _ => {
+            -1
+        },
+    }
 }
 
 // YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
+    trace!("kernel: sys_mmap");
+    // 检查 prot 是否只有前三位有效
+    if port & !0b111 != 0 {
+        return -1; // prot 包含无效位，其他位必须为 0
+    }
+    if port & 0b111 == 0{
+        return -1;
+    }
+    if len == 0 || start % PAGE_SIZE != 0 {
+        return -1; // 非法的 `len` 或 `start` 地址不对齐
+    }
+    syscall_mmap(start, len, port)
 }
 
 // YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+pub fn sys_munmap(start: usize, len: usize) -> isize {
+    trace!("kernel: sys_munmap");
+    if start % PAGE_SIZE != 0 {
+        return -1; // 非法的 start 地址
+    }
+    let start_va: VirtAddr = start.into();
+    let end_va: VirtAddr = (start+len).into();
+    if  !start_va.aligned() || !end_va.aligned(){
+        return -1;
+    }
+    // 检查参数合法性
+    if len == 0 || start % PAGE_SIZE != 0 {
+        return -1; // 非法的 `len` 或 `start` 地址不对齐
+    }
+    syscall_unmap(start, len)
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {

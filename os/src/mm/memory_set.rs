@@ -40,6 +40,19 @@ pub struct MemorySet {
 }
 
 impl MemorySet {
+    ///
+    pub fn insert_framed_area_with(
+        &mut self,
+        start_va: VirtAddr,
+        end_va: VirtAddr,
+        permission: MapPermission,
+        data: &[u8],
+    ) {
+        self.push(
+            MapArea::new(start_va, end_va, MapType::Framed, permission),
+            Some(data),
+        );
+    }
     /// Create a new empty `MemorySet`.
     pub fn new_bare() -> Self {
         Self {
@@ -50,6 +63,23 @@ impl MemorySet {
     /// Get the page table token
     pub fn token(&self) -> usize {
         self.page_table.token()
+    }
+    ///
+    pub fn is_overlap_with(&self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+        let start_va = start_va.floor();
+        let end_va = end_va.ceil();
+        self.areas.iter().any(|map_area| {
+            let map_start_va = map_area.vpn_range.get_start();
+            let map_end_va = map_area.vpn_range.get_end();
+            // println!("map_start_va:{:?},map_end_va:{:?}",map_start_va,map_end_va);
+            // println!("start_va:{:?},end_va:{:?}",start_va,end_va);
+            if (start_va < map_end_va)
+                && (end_va > map_start_va)
+            {
+                return true;
+            } 
+            false
+        })
     }
     /// Assume that no conflicts.
     pub fn insert_framed_area(
@@ -62,6 +92,18 @@ impl MemorySet {
             MapArea::new(start_va, end_va, MapType::Framed, permission),
             None,
         );
+    }
+    ///
+    pub fn delete_framed_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) {
+        let start_va = start_va.floor();
+        let end_va = end_va.ceil();
+        let index = self.areas.iter_mut().position(|map_area|
+            {start_va == map_area.vpn_range.get_start()
+            && end_va == map_area.vpn_range.get_end()});
+        if let Some(index) = index {
+            self.areas[index].unmap(&mut self.page_table);
+            self.areas.remove(index);
+        }
     }
     fn push(&mut self, mut map_area: MapArea, data: Option<&[u8]>) {
         map_area.map(&mut self.page_table);
@@ -376,6 +418,18 @@ bitflags! {
         const X = 1 << 3;
         ///Accessible in U mode
         const U = 1 << 4;
+    }
+}
+
+impl From<usize> for MapPermission {
+    fn from(prot: usize) -> Self {
+        // 直接取低3位，其他位被忽略
+        let bits = ((prot & 0b001) << 1)  // R: prot.0 -> bit1
+                | ((prot & 0b010) << 1)  // W: prot.1 -> bit2
+                | ((prot & 0b100) << 1); // X: prot.2 -> bit3
+        
+        // 使用 from_bits_truncate 忽略无效位
+        MapPermission::from_bits_truncate(bits as u8)
     }
 }
 

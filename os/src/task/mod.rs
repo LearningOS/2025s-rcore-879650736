@@ -20,7 +20,7 @@ use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
 use switch::__switch;
-pub use task::{TaskControlBlock, TaskStatus};
+pub use task::{TaskControlBlock, TaskStatus, MAX_SYSCALL_NUM};
 
 pub use context::TaskContext;
 
@@ -46,6 +46,7 @@ struct TaskManagerInner {
     tasks: Vec<TaskControlBlock>,
     /// id of current `Running` task
     current_task: usize,
+    
 }
 
 lazy_static! {
@@ -153,6 +154,60 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+     /// Increment syscall counter
+     pub fn increment(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_counts[syscall_id] += 1;
+    }
+    /// Get syscall counter
+    pub fn get(&self, syscall_id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_counts[syscall_id].into()
+    }
+    ///
+    pub fn mmap(&self, start: usize, len: usize, port: usize) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let tasks = &mut inner.tasks[current];
+        let start_va = start.into();
+        let end_va = (start+len).into();
+        let permission = port.into();
+        if tasks.memory_set.is_overlap_with(start_va, end_va){
+            return -1;
+        }
+        tasks.memory_set.insert_framed_area(start_va, end_va, permission);
+        0
+    }
+    /// 
+    pub fn unmap(&self, start: usize, len: usize) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let tasks = &mut inner.tasks[current];
+        let start_va = start.into();
+        let end_va = (start+len).into();
+        tasks.memory_set.delete_framed_area(start_va, end_va);
+        0
+    }
+}
+
+///
+pub fn syscall_mmap(start: usize, len: usize, port: usize) -> isize {
+    TASK_MANAGER.mmap(start, len, port)
+}
+/// 
+pub fn syscall_unmap(start: usize, len: usize) -> isize {
+    TASK_MANAGER.unmap(start, len)
+}
+///
+pub fn syscall_increment(syscall_id: usize) {
+    TASK_MANAGER.increment(syscall_id);
+}
+
+///
+pub fn syscall_get(syscall_id: usize) -> usize {
+    TASK_MANAGER.get(syscall_id)
 }
 
 /// Run the first task in task list.
