@@ -43,6 +43,35 @@ pub struct MemorySet {
 }
 
 impl MemorySet {
+    ///
+    pub fn is_overlap_with(&self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+        let start_va = start_va.floor();
+        let end_va = end_va.ceil();
+        self.areas.iter().any(|map_area| {
+            let map_start_va = map_area.vpn_range.get_start();
+            let map_end_va = map_area.vpn_range.get_end();
+            // println!("map_start_va:{:?},map_end_va:{:?}",map_start_va,map_end_va);
+            // println!("start_va:{:?},end_va:{:?}",start_va,end_va);
+            if (start_va < map_end_va)
+                && (end_va > map_start_va)
+            {
+                return true;
+            } 
+            false
+        })
+    }
+    ///
+    pub fn delete_framed_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) {
+        let start_va = start_va.floor();
+        let end_va = end_va.ceil();
+        let index = self.areas.iter_mut().position(|map_area|
+            {start_va == map_area.vpn_range.get_start()
+            && end_va == map_area.vpn_range.get_end()});
+        if let Some(index) = index {
+            self.areas[index].unmap(&mut self.page_table);
+            self.areas.remove(index);
+        }
+    }
     /// Create a new empty `MemorySet`.
     pub fn new_bare() -> Self {
         Self {

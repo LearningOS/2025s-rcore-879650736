@@ -9,6 +9,7 @@ use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
+use crate::mm::MapPermission;
 use alloc::sync::Arc;
 use lazy_static::*;
 
@@ -98,6 +99,30 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
         .unwrap()
         .inner_exclusive_access()
         .get_trap_cx()
+}
+
+
+///
+pub fn sysc_mmap(start:usize,len:usize, port: usize) -> isize {
+    let current_task_control_block = current_task().unwrap();
+    let mut current_task = current_task_control_block.inner_exclusive_access();
+    let end = start + len;
+    let permission=MapPermission::from_bits_truncate((port << 1) as u8) | MapPermission::U;
+    if current_task.memory_set.is_overlap_with(start.into(), end.into()){
+        return -1;
+    }
+    current_task.memory_set.insert_framed_area(start.into(), end.into(), permission);
+    0
+}
+
+///
+pub fn sysc_unmap(start:usize,len:usize)  -> isize{
+    let current_task_control_block = current_task().unwrap();
+    let mut current_task = current_task_control_block.inner_exclusive_access();
+    let start_va = start.into();
+    let end_va = (start+len).into();
+    current_task.memory_set.delete_framed_area(start_va, end_va);
+    0
 }
 
 ///Return to idle control flow for new scheduling
