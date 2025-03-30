@@ -384,4 +384,54 @@ impl ProcessLocker {
         self.finish[id] = true;
     }
 
+    pub fn detect1(&mut self, id: usize, flag: usize) -> usize {
+    if self.finish[id] {
+        return 0; // 已完成线程直接跳过
+    }
+
+    // 创建临时副本用于模拟操作（不修改原始数据）
+    let mut temp_available = self.available.clone();
+    let temp_alloc = self.allocation.clone();
+    let mut temp_need = self.need.clone();
+    let mut temp_finish = self.finish.clone();
+
+    // 步骤1: 尝试预分配（need+1）
+    temp_need[id][flag] += 1; // 模拟需求增加
+
+    // 步骤2: 检查即时请求是否合法
+    if temp_need[id][flag] > temp_available[flag] {
+        return 0xDEAD; // 直接拒绝非法请求
+    }
+
+    // 步骤3: 安全性检查（简化版银行家算法）
+    let mut found;
+    loop {
+        found = false;
+        // 遍历所有未完成线程
+        for i in 0..temp_finish.len() {
+            if !temp_finish[i] 
+                && (temp_need[i][0] <= temp_available[0] 
+                || temp_need[i][1] <= temp_available[1] )
+            {
+                // 模拟线程i执行完成并释放资源
+                temp_available[0] += temp_alloc[i][0]; // 从原始数据读取已分配值
+                temp_available[1] += temp_alloc[i][1];
+                temp_finish[i] = true;
+                found = true;
+            }  
+            }  
+            if !found {
+                break;
+            }
+     
+    }
+    if temp_finish.iter().all(|&x| x) {
+        // 安全状态：提交预分配
+        self.need[id][flag] += 1;
+        0
+    } else {
+        0xDEAD
+    }
+}
+
 }
