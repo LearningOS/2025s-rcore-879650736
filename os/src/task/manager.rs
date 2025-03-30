@@ -31,15 +31,32 @@ impl TaskManager {
     }
     /// Take a process out of the ready queue
     pub fn fetch(&mut self) -> Option<Arc<TaskControlBlock>> {
+        for (index, task) in self.ready_queue.iter().enumerate() {
+            let tid = task.inner_exclusive_access().res.as_ref().unwrap().tid;
+            let process = task.process.upgrade().unwrap();
+            let mut process_inner = process.inner_exclusive_access();
+
+            if !process_inner.locker.finish[tid] {
+                process_inner.locker.alloc(tid);
+
+                let task_queue = self.ready_queue.remove(index);
+                return task_queue;
+            }
+        }
         self.ready_queue.pop_front()
     }
     pub fn remove(&mut self, task: Arc<TaskControlBlock>) {
-        if let Some((id, _)) = self
+        if let Some((id, task_now)) = self
             .ready_queue
             .iter()
             .enumerate()
             .find(|(_, t)| Arc::as_ptr(t) == Arc::as_ptr(&task))
         {
+            let tid = task_now.inner_exclusive_access().res.as_ref().unwrap().tid;
+            let process = task.process.upgrade().unwrap();
+            let mut process_inner = process.inner_exclusive_access();
+            process_inner.locker.finish(tid);
+            process_inner.locker.dealloc(tid);
             self.ready_queue.remove(id);
         }
     }

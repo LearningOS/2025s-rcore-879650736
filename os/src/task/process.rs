@@ -49,6 +49,25 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    /// deadlock detect
+    pub deadlock_detect: bool,
+    /// mutex and semaphore locker
+    pub locker: ProcessLocker,
+
+}
+
+///
+pub struct ProcessLocker {
+    /// 可利用资源向量 Available
+    pub available: Vec<usize>,
+    /// 分配矩阵 Allocation
+    pub allocation: Vec<Vec<usize>>,
+    /// 需求矩阵 Need
+    pub need: Vec<Vec<usize>>,
+    ///
+    pub temp: Vec<Vec<usize>>,
+    /// 结束向量 Finish
+    pub finish: Vec<bool>,
 }
 
 impl ProcessControlBlockInner {
@@ -119,6 +138,8 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: false,
+                    locker: ProcessLocker::new(),
                 })
             },
         });
@@ -143,6 +164,7 @@ impl ProcessControlBlock {
         );
         // add main thread to the process
         let mut process_inner = process.inner_exclusive_access();
+        process_inner.locker.init();
         process_inner.tasks.push(Some(Arc::clone(&task)));
         drop(process_inner);
         insert_into_pid2process(process.getpid(), Arc::clone(&process));
@@ -245,6 +267,8 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: false,
+                    locker: ProcessLocker::new(),
                 })
             },
         });
@@ -266,6 +290,7 @@ impl ProcessControlBlock {
         ));
         // attach task to child process
         let mut child_inner = child.inner_exclusive_access();
+        child_inner.locker.init();
         child_inner.tasks.push(Some(Arc::clone(&task)));
         drop(child_inner);
         // modify kstack_top in trap_cx of this thread
@@ -282,4 +307,81 @@ impl ProcessControlBlock {
     pub fn getpid(&self) -> usize {
         self.pid.0
     }
+}
+
+impl ProcessLocker {
+    ///
+    pub fn new() -> Self {
+        Self{
+            available: Vec::new(),
+            allocation: Vec::new(),
+            need: Vec::new(),
+            temp: Vec::new(),
+            finish: Vec::new(),
+        }
+    }
+    ///初始化矩阵，在创建tcb的时候初始化
+    pub fn init(&mut self){
+        self.available.resize(2, 0);
+        self.allocation.push(vec![0, 0]);
+        self.need.push(vec![0, 0]);
+        self.temp.push(vec![0, 0]);
+        self.finish.push(false);
+    }
+    /// 在创建 metex 和 sem 的时候延长available向量
+    /// id = 0为mutex, id = 1 为sem
+    pub fn add_available(&mut self,id: usize){
+        self.available[id] += 1;
+    }
+    ///metux or sem ，request减少时，allocation-1
+    /// 隐含max=allocation+request
+    /// need=max-allocation
+    /// =request= 0 or 1
+    /// request减少时，need=0
+    pub fn remove(&mut self,id: usize,flag: usize){
+        self.allocation[id][flag] -= 1;
+        self.need[id][flag] = 0;
+    }
+    /// 当线程 thr[i] 获得资源后，可顺利执行，直至完成，
+    /// 并释放出分配给它的资源，下一个thread进行实际分配
+    /// 进行allocation+request，need清零
+    pub fn alloc(&mut self,id: usize){
+        self.available[0] -= self.need[id][0];
+        self.available[1] -= self.need[id][1];
+        self.allocation[id][0] += self.need[id][0];
+        self.allocation[id][1] += self.need[id][1];
+        self.temp[id][0] = self.need[id][0];
+        self.temp[id][1] = self.need[id][1];
+        self.need[id][0] = 0;
+        self.need[id][1] = 0;
+    }
+    /// 当线程被remove释放资源时
+    pub fn dealloc(&mut self,id: usize){
+        self.available[0] += self.temp[id][0];
+        self.available[1] += self.temp[id][1];
+        self.allocation[id][0] -= self.temp[id][0];
+        self.allocation[id][1] -= self.temp[id][1];
+        self.temp[id][0] = 0;
+        self.temp[id][1] = 0;
+    }
+    
+    /// 进行银行家算法步骤，简化模型，
+    /// 只检测当前是否线程满足Need[i,j] <= Work[j];
+    pub fn detect(&mut self, id: usize, flag: usize) -> usize {
+        if self.finish[id] == true{
+            return 0;
+        }
+        //进行预分配
+        if self.available[flag] > self.need[id][flag] {
+            self.need[id][flag] += 1;
+            return 0;
+        } else {
+            return 0xDEAD;
+        }
+    }
+    ///thread finish
+    pub fn finish(&mut self, id: usize) {
+        self.finish[id] = true;
+    }
+
 }
