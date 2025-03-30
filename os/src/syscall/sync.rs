@@ -78,7 +78,7 @@ pub fn sys_mutex_lock(mutex_id: usize) -> isize {
     .as_ref()
     .unwrap()
     .tid;
-    if process_inner.locker.detect1(tid, 0) != 0 {
+    if process_inner.locker.detect(tid, 0) != 0 {
         return -0xDEAD;
     }
     let mutex = Arc::clone(process_inner.mutex_list[mutex_id].as_ref().unwrap());
